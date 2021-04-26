@@ -34,3 +34,9 @@ vignettes/*.pdf
 # Temporary files created by R markdown
 *.utf8.md
 *.knit.md
+
+# Sample files
+data/merged_1000_adni_clust.eigenval
+data/merged_1000_adni_clust.eigenvec
+data/merged_1000_adni_clust.log
+data/integrated_call_samples_v3.20130502.ALL.panel
