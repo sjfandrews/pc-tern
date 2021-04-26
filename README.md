@@ -4,7 +4,7 @@ Principal component analysis (PCA) of genetic data can be used to infer ancestry
 
 
 ![PCA Ternary plot](output/pca_tern.png)
-_PCA Ternary plot showing population structure in 1000 genomes (left) and _
+_PCA Ternary plot showing population structure in 1000 genomes (left) and sample (right)._
 
 ## Usage
 
