@@ -1,20 +1,21 @@
 library(tidyverse)
 # library(bigutilsr)
+`%nin%` = Negate(`%in%`)
+
+samp.path <- "data/integrated_call_samples_v3.20130502.ALL.panel"
+samp <- read_table2(samp.path) %>% select(-X5)
+vec.path <- "path/to/sample_1kG_merged.eigenvec"
 
 # assign sample to cluster
 ## https://www.biorxiv.org/content/10.1101/2020.10.06.328203v2.full
 ## http://adomingues.github.io/2015/09/24/finding-closest-element-to-a-number-in-a-list/
-find_cluster <- function(df){
+find_cluster <- function(df,clusters_df){
   iid <- select(df, starts_with("PC"))
-  mat <- bind_rows(clusters, iid) %>% dist(.)
+  mat <- bind_rows(clusters_df, iid) %>% dist(.)
   # mat
   clus <- as.matrix(mat)[6,1:5] %>% which.min()
   df %>% mutate(super_pop = pops[clus])
 }
-
-samp.path <- "data/integrated_call_samples_v3.20130502.ALL.panel"
-samp <- read_table2(samp.path) %>% select(-X5)
-vec.path <- "data/merged_1000_adni_clust.eigenvec"
 
 # Formating data
 vec <- read_table2(vec.path, col_names = F) %>%
@@ -25,10 +26,10 @@ vec <- read_table2(vec.path, col_names = F) %>%
   select(-gender)
 
 # Pull out 1000 genomes samples
-kg <- filter(vec, !str_detect(iid, "_S_"))
+kg <- filter(vec, iid %in% samp$sample)
 
 # population names
-pops <- kg %>% filter(pop != "sample") %>% arrange(super_pop) %>% distinct(super_pop)  %>% pull()
+pops <- kg %>% filter(pop != "sample") %>% arrange(super_pop) %>% distinct(super_pop) %>% pull()
 
 # find geometric median of each PC for each cluster
 clusters <- kg %>%
@@ -40,10 +41,10 @@ clusters <- kg %>%
 
 # extract sample information and assign to cluster
 samples <- vec %>%
-  filter(str_detect(iid, "_S_")) %>%
+  filter(iid %in% samp$sample) %>%
   mutate(iid = paste0("sample_", 1:nrow(.))) %>%
   group_split(iid) %>%
-  map_df(., find_cluster)
+  map_df(., find_cluster, clusters_df=clusters)
 
 dat <- bind_rows(kg, samples)
 
