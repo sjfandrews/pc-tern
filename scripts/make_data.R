@@ -41,7 +41,7 @@ clusters <- kg %>%
 
 # extract sample information and assign to cluster
 samples <- vec %>%
-  filter(iid %in% samp$sample) %>%
+  filter(iid %nin% samp$sample) %>%
   mutate(iid = paste0("sample_", 1:nrow(.))) %>%
   group_split(iid) %>%
   map_df(., find_cluster, clusters_df=clusters)
