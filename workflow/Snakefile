@@ -1,0 +1,181 @@
+
+configfile: "config/config.yaml"
+HM3 = config["HM3"]
+DATAOUT = config["DATAOUT"]
+SAMPLE = config["SAMPLE"]
+REFNAME = config["REFNAME"]
+tgped = config["tgped"]
+GenoMiss = config["GenoMiss"]
+
+BPLINK = [".bed", ".bim", ".fam"]
+
+rule all:
+    input:
+        expand("{dataout}/{sample}_{refname}_pca_tern.png",
+                dataout = DATAOUT, sample = SAMPLE, refname = REFNAME),
+        expand("{dataout}/{sample}_{refname}_merged.5.{ext}",
+                ext = ["Q", "P"], dataout = DATAOUT, sample = SAMPLE, refname = REFNAME)
+
+# Prune sample dataset
+rule sample_prune:
+    input:
+        fileset = multiext("data/{sample}", ".bed", ".bim", ".fam"),
+        prune = HM3,
+    output:
+        multiext("{dataout}/{sample}_pruned", ".bed", ".bim", ".fam")
+    params:
+        indat = "data/{sample}",
+        out = "{dataout}/{sample}_pruned"
+    conda: "envs/plink.yaml"
+    shell:
+        """
+        plink --keep-allele-order --bfile {params.indat} \
+          --extract {input.prune} \
+          --make-bed --out {params.out}
+        """
+
+rule sample_make_prunelist:
+    input: rules.sample_prune.output[1]
+    output: "{dataout}/{sample}_pruned.snplist"
+    shell: "cut -f2 {input} > {output}"
+
+# Warn: subset called for sample that does not exist in header: "NA19176"... skipping
+rule Reference_prune:
+    input:
+        vcf = "data/reference/{refname}_hg19_allChr_maxmiss0.05.vcf.gz",
+        prune = "{dataout}/{sample}_pruned.snplist",
+        founders = "data/reference/20130606_g1k.founders"
+    output:
+        vcf = temp("{dataout}/{sample}_{refname}pruned.vcf.gz"),
+        tbi = temp("{dataout}/{sample}_{refname}pruned.vcf.gz.tbi")
+    conda: "envs/bcftools.yaml"
+    shell:
+        """
+        bcftools view -i 'ID=@{input.prune}' -S {input.founders} \
+          -Oz -o {output.vcf} --force-samples {input.vcf} --threads 4
+        bcftools index -ft {output.vcf}
+        """
+
+# Recode sample plink file to vcf
+rule Sample_Plink2Bcf:
+    input:
+        rules.sample_prune.output
+    output: "{dataout}/{sample}_pruned.vcf.gz"
+    params:
+        stem = "{dataout}/{sample}_pruned",
+        out = "{dataout}/{sample}_pruned"
+    conda: "envs/plink.yaml"
+    shell:
+        """
+        plink --bfile {params.stem} --recode vcf bgz \
+          --real-ref-alleles --out {params.out}
+        """
+
+# Index bcf
+rule Sample_IndexBcf:
+    input: "{dataout}/{sample}_pruned.vcf.gz"
+    output: "{dataout}/{sample}_pruned.vcf.gz.csi"
+    conda: "envs/bcftools.yaml"
+    shell: 'bcftools index -f {input}'
+
+# Merge ref and sample
+rule Merge_RefenceSample:
+    input:
+        bcf_ref = "{dataout}/{sample}_{refname}pruned.vcf.gz",
+        tbi_ref = "{dataout}/{sample}_{refname}pruned.vcf.gz.tbi",
+        bcf_samp = "{dataout}/{sample}_pruned.vcf.gz",
+        csi_samp = "{dataout}/{sample}_pruned.vcf.gz.csi",
+    params:
+        miss = GenoMiss,
+    output:
+        out = "{dataout}/{sample}_{refname}_merged.vcf"
+    conda: "envs/bcftools.yaml"
+    shell:
+        r"""
+        bcftools merge -m none --threads 2 \
+          {input.bcf_ref} {input.bcf_samp} | \
+          bcftools view  -i 'F_MISSING <= {params.miss}' -Ov -o {output.out} --threads 2
+        """
+
+# recode merged sample to plink
+rule Plink_RefenceSample:
+    input:
+        vcf = "{dataout}/{sample}_{refname}_merged.vcf"
+    output:
+        multiext("{dataout}/{sample}_{refname}_merged", ".bed", ".bim", ".fam")
+    params:
+        out = "{dataout}/{sample}_{refname}_merged"
+    conda: "envs/plink.yaml"
+    shell: "plink --keep-allele-order --vcf {input.vcf} --const-fid --make-bed --out {params.out}"
+
+rule fix_fam:
+    input:
+        oldfam = rules.sample_prune.output[2],
+        newfam = "{dataout}/{sample}_{refname}_merged.fam",
+        tgped = tgped,
+        ref_pops = "data/reference/{refname}_pops.txt",
+        ref_superpops = "data/reference/{refname}_superpops.txt"
+    output:
+        fixed = "{dataout}/{sample}_{refname}_merged_fixed.fam",
+        pops = "{dataout}/{sample}_{refname}_merged.pop"
+    conda: "envs/r.yaml"
+    script: "scripts/fix_fam.R"
+
+# PCA analysis to identify population outliers
+rule PcaPopulationOutliers:
+    input:
+        plink = multiext("{dataout}/{sample}_{refname}_merged", ".bim", ".bed", ".fam"),
+        fam = rules.fix_fam.output,
+        ref = "data/reference/{refname}_pops.txt",
+        clust = "data/reference/{refname}_pops_unique.txt"
+    output:
+        multiext("{dataout}/{sample}_{refname}_merged", '.eigenval', '.eigenvec')
+    params:
+        indat_plink = "{dataout}/{sample}_{refname}_merged",
+        out = "{dataout}/{sample}_{refname}_merged"
+    conda: "envs/plink.yaml"
+    shell:
+        """
+        plink --keep-allele-order --bfile {params.indat_plink} --fam {input.fam} \
+          --pca 10 --within {input.ref} --pca-clusters {input.clust} --out {params.out}
+        """
+
+rule cluster_pops:
+    input:
+        eigenvec = rules.PcaPopulationOutliers.output[1],
+        ref_pops = "data/reference/{refname}_pops.txt",
+        ref_superpops = "data/reference/{refname}_superpops.txt",
+    output:
+        pcs_pops = "{dataout}/{sample}_{refname}_pcs_pops.tsv",
+    conda: 'envs/r.yaml'
+    script: 'scripts/make_data.R'
+
+rule plot_pca_tern:
+    input:
+        pcs = rules.cluster_pops.output.pcs_pops,
+        ref_superpops = "data/reference/{refname}_superpops.txt",
+    output: "{dataout}/{sample}_{refname}_pca_tern.png"
+    conda: 'envs/r.yaml'
+    script: 'scripts/pca_tern_plot.R'
+
+## TODO ADD rule to thin rules.Plink_RefenceSample plink files as input to rules.admixture
+
+rule admixture:
+    input:
+        plink = multiext("{dataout}/{sample}_{refname}_merged", ".bim", ".bed", ".fam"),
+        pops = rules.fix_fam.output.pops
+    output: multiext("{dataout}/{sample}_{refname}_merged.5", ".Q", ".P")
+    params:
+        stem = '{dataout}/{sample}_{refname}_merged',
+        K = 5
+    conda: 'envs/admixture.yaml'
+    shell: #"admixture {params.stem}.bed {params.K} --supervised -j32"
+        r"""
+        admixture {params.stem}.bed {params.K} --supervised -j32;
+        mv {wildcards.sample}_{wildcards.refname}_merged.5.Q {wildcards.dataout};
+        mv {wildcards.sample}_{wildcards.refname}_merged.5.P {wildcards.dataout}
+        """
+
+## TODO ADD rule compining rules.admixture.output.Q to rueles.cluster_pops.output. Use sample_prune
+
+## TODO ADD rule ploting admixture results 

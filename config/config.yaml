@@ -1,0 +1,9 @@
+# snakemake -j1 --notemp --use-conda -np
+# snakemake --forceall --rulegraph | dot -Tpdf > docs/ancestry.pdf
+
+HM3: "/sc/arion/projects/LOAD/shea/bin/ldsc/w_hm3_cpra.snplist"
+DATAOUT: "output"
+SAMPLE: ["gsa1234567"]
+REFNAME: "1kG"
+tgped: "data/reference/20130606_g1k.ped"
+GenoMiss: 0.05
