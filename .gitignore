@@ -36,9 +36,11 @@ vignettes/*.pdf
 *.knit.md
 
 # Sample files
-data/merged_1000_adni_clust.eigenval
-data/merged_1000_adni_clust.eigenvec
-data/merged_1000_adni_clust.log
+
+data/*
+data/reference/*
 data/integrated_call_samples_v3.20130502.ALL.panel
 input/*
-output/pca_tern_*
+plots/pca_tern_*
+output/*
+.snakemake/
