@@ -44,3 +44,5 @@ input/*
 plots/pca_tern_*
 output/*
 .snakemake/
+.snakejob/
+.test.smk/

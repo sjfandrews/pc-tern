@@ -1,6 +1,11 @@
+if(any(grepl("conda", .libPaths(), fixed = TRUE))){
+  message("Setting libPaths")
+.libPaths(c(.libPaths(),snakemake@params[["Rlib"]]))
+}
+
 library(tidyverse)
 `%nin%` = negate(`%in%`)
-# library(bigutilsr)
+library(bigutilsr)
 
 # assign sample to cluster
 ## https://www.biorxiv.org/content/10.1101/2020.10.06.328203v2.full

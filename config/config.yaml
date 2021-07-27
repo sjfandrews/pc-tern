@@ -4,6 +4,11 @@
 HM3: "/sc/arion/projects/LOAD/shea/bin/ldsc/w_hm3_cpra.snplist"
 DATAOUT: "output"
 SAMPLE: ["gsa1234567"]
-REFNAME: "1kG"
+REFNAME: ["1kG"]
 tgped: "data/reference/20130606_g1k.ped"
 GenoMiss: 0.05
+kb: 50
+size: 10
+r2: 0.1
+pcs: "/sc/arion/projects/LOAD/shea/data/ADRC_CFI/data/adrc_pcs.tsv"
+superpop: "/sc/arion/projects/LOAD/harern01/projects/pc-tern/output/gsa1234567_1kG_merged_superpop.tsv"
