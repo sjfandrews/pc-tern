@@ -10,23 +10,26 @@ kb = config["kb"]
 size = config["size"]
 r2 = config["r2"]
 pcs = config["pcs"]
-superpop = config["superpop"]
 BPLINK = [".bed", ".bim", ".fam"]
 
 rule all:
     input:
-        expand("{dataout}/{sample}_hapmap.{ext}",
-                 ext = ["prune.in", "prune.out"], dataout = DATAOUT, sample = SAMPLE),
-        expand("{dataout}/{sample}_thinned{ext}", dataout = DATAOUT, sample = SAMPLE, ext = BPLINK),
-        expand("{dataout}/{sample}_{refname}_merged{ext}", ext = [".5.Q", ".5.P"],
-                dataout = DATAOUT, sample = SAMPLE, refname = REFNAME),
-        expand("{dataout}/{sample}_{refname}_merged{ext}", ext = [".5.Q.header"],
-                dataout = DATAOUT, sample = SAMPLE, refname = REFNAME),
-        expand("{dataout}/{sample}_{refname}_merged{ext}", ext = [".5.Q.pop"],
-                dataout = DATAOUT, sample = SAMPLE, refname = REFNAME),
+        # expand("{dataout}/{sample}_hapmap.{ext}",
+        #          ext = ["prune.in", "prune.out"], dataout = DATAOUT, sample = SAMPLE),
+        # expand("{dataout}/{sample}_thinned{ext}", dataout = DATAOUT, sample = SAMPLE, ext = BPLINK),
+        # expand("{dataout}/{sample}_{refname}_merged{ext}", ext = [".5.Q", ".5.P"],
+        #         dataout = DATAOUT, sample = SAMPLE, refname = REFNAME),
+        # expand("{dataout}/{sample}_{refname}_merged{ext}", ext = [".5.Qheader"],
+        #         dataout = DATAOUT, sample = SAMPLE, refname = REFNAME),
+        # expand("{dataout}/{sample}_{refname}_merged{ext}", ext = ["_admixture_pca"],
+        #         dataout = DATAOUT, sample = SAMPLE, refname = REFNAME),
         expand("{dataout}/{sample}_{refname}_pca_tern.png",
                  dataout = DATAOUT, sample = SAMPLE,refname = REFNAME),
-        expand("{dataout}/{sample}_{refname}_admixturekplot.png",
+        expand("{dataout}/{sample}_{refname}_merged_5Q_assign.tsv",
+                 dataout = DATAOUT, sample = SAMPLE,refname = REFNAME),
+        # expand("{dataout}/{sample}_{refname}_kplot_fixed.png",
+        #         dataout = DATAOUT, sample = SAMPLE,refname = REFNAME),
+        expand("{dataout}/{sample}_{refname}_kplot_assigned.png",
                 dataout = DATAOUT, sample = SAMPLE,refname = REFNAME)
 
 
@@ -49,38 +52,59 @@ rule sample_hapmap:
         """
 
 rule thinning:
-    input:multiext("{dataout}/{sample}_hapmap", ".bed", ".bim", ".fam")
+    input: rules.sample_hapmap.output
     output:
         multiext("{dataout}/{sample}_hapmap", ".prune.in", ".prune.out")
     params:
         window = 50,
         size = size,
         r2 = r2,
-        stem = "{dataout}/{sample}_hapmap",
+        stem = rules.sample_hapmap.params.out,
         out = "{dataout}/{sample}_hapmap"
     conda: "envs/plink.yaml"
     shell:
         r"""
-        plink --bfile {params.stem} --indep-pairwise {params.window} {params.size} {params.r2}\
+        plink --keep-allele-order --bfile {params.stem} --indep-pairwise {params.window} {params.size} {params.r2}\
            --out {params.out}
         """
 
 rule extract_thin:
     input:
-        multiext("{dataout}/{sample}_hapmap", ".bim", ".bed", ".fam"),
-        thin = "{dataout}/{sample}_hapmap.prune.in"
-    output:multiext("{dataout}/{sample}_thinned", ".bim", ".bed", ".fam")
+        rules.sample_hapmap.output,
+        thin = rules.thinning.output[0]
+    output: multiext("{dataout}/{sample}_thinned", ".bim", ".bed", ".fam")
     params:
-        stem = "{dataout}/{sample}_hapmap",
+        stem = rules.sample_hapmap.params.out,
         out = "{dataout}/{sample}_thinned"
     conda: "envs/plink.yaml"
     shell:
         r"""
-        plink --bfile {params.stem} --extract {input.thin} --make-bed --out {params.out}
+        plink --keep-allele-order --bfile {params.stem} --extract {input.thin} --make-bed --out {params.out}
+        """
+# Recode sample plink file to vcf
+rule Sample_Plink2Bcf:
+    input:
+        rules.extract_thin.output
+    output: "{dataout}/{sample}_thinned.vcf.gz"
+    params:
+        stem = rules.extract_thin.params.out,
+        out = "{dataout}/{sample}_thinned"
+    conda: "envs/plink.yaml"
+    shell:
+        """
+        plink --bfile {params.stem} --recode vcf bgz \
+          --real-ref-alleles --out {params.out}
         """
 
+# Index bcf
+rule Sample_IndexBcf:
+    input: rules.Sample_Plink2Bcf.output
+    output: "{dataout}/{sample}_thinned.vcf.gz.csi"
+    conda: "envs/bcftools.yaml"
+    shell: 'bcftools index -f {input}'
+
 rule sample_make_prunelist:
-    input: rules.sample_hapmap.output[1]
+    input: rules.extract_thin.output[0]
     output: "{dataout}/{sample}_pruned.snplist"
     shell: "cut -f2 {input} > {output}"
 
@@ -97,39 +121,17 @@ rule Reference_prune:
     shell:
         """
         bcftools view -i 'ID=@{input.prune}' -S {input.founders} \
-          -Oz -o {output.vcf} --force-samples {input.vcf} --threads 4
+          -Oz -o {output.vcf} --force-samples {input.vcf} --threads 6
         bcftools index -ft {output.vcf}
         """
-
-# Recode sample plink file to vcf
-rule Sample_Plink2Bcf:
-    input:
-        rules.sample_hapmap.output
-    output: "{dataout}/{sample}_pruned.vcf.gz"
-    params:
-        stem = "{dataout}/{sample}_pruned",
-        out = "{dataout}/{sample}_pruned"
-    conda: "envs/plink.yaml"
-    shell:
-        """
-        plink --bfile {params.stem} --recode vcf bgz \
-          --real-ref-alleles --out {params.out}
-        """
-
-# Index bcf
-rule Sample_IndexBcf:
-    input: "{dataout}/{sample}_pruned.vcf.gz"
-    output: "{dataout}/{sample}_pruned.vcf.gz.csi"
-    conda: "envs/bcftools.yaml"
-    shell: 'bcftools index -f {input}'
 
 # Merge ref and sample
 rule Merge_RefenceSample:
     input:
         bcf_ref = "{dataout}/{sample}_{refname}pruned.vcf.gz",
         tbi_ref = "{dataout}/{sample}_{refname}pruned.vcf.gz.tbi",
-        bcf_samp = "{dataout}/{sample}_pruned.vcf.gz",
-        csi_samp = "{dataout}/{sample}_pruned.vcf.gz.csi",
+        bcf_samp = "{dataout}/{sample}_thinned.vcf.gz",
+        csi_samp = "{dataout}/{sample}_thinned.vcf.gz.csi",
     params:
         miss = GenoMiss,
     output:
@@ -219,31 +221,29 @@ rule admixture:
         mv {wildcards.sample}_{wildcards.refname}_merged.5.Q {wildcards.dataout};
         mv {wildcards.sample}_{wildcards.refname}_merged.5.P {wildcards.dataout}
         """
-rule assignment:
-    input:
-        Qfile = rules.admixture.output[0],
-        pops = rules.cluster_pops.output.pcs_pops
-    output:"{dataout}/{sample}_{refname}_merged_5Q_ancestry_assign.tsv"
-    conda: 'envs/r.yaml'
-    script:'scripts/ancestry_assign.R'
-
 rule combine:
     input:
         Qraw = rules.admixture.output[0],
         pops = rules.cluster_pops.output.pcs_pops
     output:
-        Qheader = "{dataout}/{sample}_{refname}_merged.5.Q.header",
-        outfile = "{dataout}/{sample}_{refname}_merged.5.Q.pop"
+        Qheader = "{dataout}/{sample}_{refname}_merged.5.Qheader",
+        outfile = "{dataout}/{sample}_{refname}_merged_admixture_pca"
     shell:
       r"""
       echo -e "K1\tK2\tK3\tK4\tK5" | cat - {input.Qraw} > {output.Qheader}
       paste {input.pops} {output.Qheader} > {output.outfile}
       """
+rule assign:
+    input: rules.combine.output.outfile
+    output:"{dataout}/{sample}_{refname}_merged_5Q_assign.tsv"
+    conda: 'envs/r.yaml'
+    script:'scripts/ancestry_assign.R'
 
 rule plot:
     input:
-        Qdat = rules.combine.output.outfile
+        Qdat = rules.assign.output
     output:
-        kplot = "{dataout}/{sample}_{refname}_admixturekplot.png"
+        # p1 = "{dataout}/{sample}_{refname}_kplot_fixed.png",
+        p2 = "{dataout}/{sample}_{refname}_kplot_assigned.png"
     conda: 'envs/r.yaml'
     script: 'scripts/admixtureplot.R'

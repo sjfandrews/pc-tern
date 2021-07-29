@@ -22,7 +22,7 @@ Reference_cat:
   mem: 4000
   time: '4:00'
 Reference_prune:
-  cores: 4
+  cores: 6
   mem: 4000
   time: '4:00'
 Merge_RefenceSample:
@@ -51,4 +51,4 @@ PCAPartitioning:
 admixture:
   cores: 32
   mem: 2000
-  time: '144:00'
+  time: '48:00'
