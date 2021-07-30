@@ -180,8 +180,8 @@ rule Reference_prune:
     conda: "envs/bcftools.yaml"
     shell:
         r"""
-        bcftools view -i 'ID=@{input.prune}' -S {input.founders} \
-          -Oz -o {output.vcf} --force-samples {input.vcf} --threads 6
+        bcftools view -i 'ID=@{input.prune}' -S {input.founders} {input.vcf} --force-samples --threads 6 |\
+        bcftools view -s ^NA20299,NA20314,NA20274,HG01880 -Oz -o {output.vcf} --force-samples --threads 6
         bcftools index -ft {output.vcf}
         """
 
