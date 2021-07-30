@@ -1,7 +1,10 @@
-library(tidyverse)
+library(dplyr)
+library(tidyr)
+library(readr)
 library(ggplot2)
 library(cowplot)
 library(ggtern)
+
 
 pcs.path <- snakemake@input[['pcs']]
 ref_superpops.path  <- snakemake@input[['ref_superpops']]
@@ -13,6 +16,7 @@ ref <- read_table2(ref_superpops.path)
 pops <- pcs %>% filter(pop != "sample") %>% arrange(super_pop) %>% distinct(super_pop)  %>% pull()
 
 # Format data for ploting ternery PCA
+message("Format data for ploting ternery PCA /n")
 dat.tern <- select(pcs, PC1, PC2, PC3)  %>%
   mutate(PC1 = PC1 + (min(PC1) * -1),
          PC2 = PC2 + (min(PC2) * -1),
@@ -23,6 +27,7 @@ dat.tern <- select(pcs, PC1, PC2, PC3)  %>%
   bind_cols(select(pcs, iid, super_pop))
 
 ## Plot 1kg reference population only
+message("Plot 1kg reference population only /n")
 plc <- c("#E41A1C", "#377EB8", "#4DAF4A", "#984EA3", "#FF7F00")
 
 dat.kg <- filter(dat.tern, iid %in% ref$IID)
@@ -39,6 +44,7 @@ ref.p <- ggplot(data=dat.kg, aes(x=PC1, y=PC2, z=PC3, colour = super_pop)) +
 # ref.p
 
 ## Overlay sample on reference population pca space
+message("Overlay sample on reference population pca space /n")
 plc2 <- c("grey75", "#E41A1C", "#377EB8", "#4DAF4A", "#984EA3", "#FF7F00")
 
 dat.sample <- dat.tern %>% mutate(super_pop = ifelse(iid %in% ref$IID,"1kg", super_pop))
@@ -52,11 +58,13 @@ sample.p <- ggplot(data=dat.sample, aes(x=PC1, y=PC2, z=PC3, colour = super_pop)
   labs(color = "Sample") +
   theme(text = element_text(size=10))
 
+message("Getting the legend /n")
 legend <- get_legend(
   # create some space to the left of the legend
-  ggplotGrob(sample.p + theme(legend.box.margin = margin(0, 0, 0, 12), legend.title = element_blank()))
+ggplotGrob(sample.p + theme(legend.box.margin = margin(0, 0, 0, 12), legend.title = element_blank()))
 )
 
+message("plot both /n")
 p1 <- plot_grid(
   ggplotGrob(ref.p + theme(legend.position="none", plot.margin=unit(c(-15,-7,-7,-7), "mm"))),
   ggplotGrob(sample.p + theme(legend.position="none", plot.margin=unit(c(-15,-7,-7,-7), "mm"))),
