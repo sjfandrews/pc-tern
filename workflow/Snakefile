@@ -77,7 +77,7 @@ rule Sample_Flip:
         multiext("{dataout}/{sample}_flipped", ".bim", ".bed", ".fam")
     params:
         dataout = DATAOUT
-    conda: "envs/flippyr.yaml"
+    container: 'docker://befh/flippyr:0.4.0'
     shell: "flippyr -p {input.fasta} -o {params.dataout}/{wildcards.sample} {input.bim}"
 
 rule Sample_ChromPosRef:
@@ -98,7 +98,7 @@ rule sample_hapmap:
     output:
         multiext("{dataout}/{sample}_hapmap", ".bed", ".bim", ".fam")
     params:
-        indat = "data/{sample}",
+        indat = "{dataout}/{sample}_flipped",
         out = "{dataout}/{sample}_hapmap"
     conda: "envs/plink.yaml"
     shell:
