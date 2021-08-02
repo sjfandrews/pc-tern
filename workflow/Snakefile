@@ -19,6 +19,8 @@ rule all:
     input:
         expand("{dataout}/plots/{sample}_{refname}_pca_tern.png",
                  dataout = DATAOUT, sample = SAMPLE,refname = REFNAME),
+        expand("{dataout}/{sample}_{refname}_merged_admixture_fixed.tsv",
+                 dataout = DATAOUT, sample = SAMPLE,refname = REFNAME),
         expand("{dataout}/{sample}_{refname}_merged_assigned_ancestry.tsv",
                  dataout = DATAOUT, sample = SAMPLE,refname = REFNAME),
         expand("{dataout}/plots/{sample}_{refname}_admixture.png",
@@ -77,7 +79,7 @@ rule Sample_Flip:
         multiext("{dataout}/{sample}_flipped", ".bim", ".bed", ".fam")
     params:
         dataout = DATAOUT
-    container: 'docker://befh/flippyr:0.4.0'
+    conda: "envs/flippyr.yaml"
     shell: "flippyr -p {input.fasta} -o {params.dataout}/{wildcards.sample} {input.bim}"
 
 rule Sample_ChromPosRef:
@@ -242,7 +244,7 @@ rule PcaPopulationOutliers:
         out = "{dataout}/{sample}_{refname}_merged"
     conda: "envs/plink.yaml"
     shell:
-        """
+        r"""
         plink --keep-allele-order --bfile {params.indat_plink} --fam {input.fam} \
           --pca 10 --within {input.ref} --pca-clusters {input.clust} --out {params.out}
         """
@@ -283,6 +285,17 @@ rule admixture:
         mv {wildcards.sample}_{wildcards.refname}_merged.5.P {wildcards.dataout}
         """
 
+# Interpret admixture Output
+rule interpret_admixture:
+    input:
+        Qfile =rules.admixture.output[0],
+        fam = rules.fix_fam.output.fixed,
+        pops = rules.fix_fam.output.pops,
+        pcs = rules.cluster_pops.output.pcs_pops
+    output: "{dataout}/{sample}_{refname}_merged_admixture_fixed.tsv"
+    conda: 'envs/r.yaml'
+    script:'scripts/interpret_admixture.R'
+
 # Combine admixture output and PCA ancestry file
 rule combine:
     input:
@@ -296,7 +309,7 @@ rule combine:
       echo -e "K1\tK2\tK3\tK4\tK5" | cat - {input.Qraw} > {output.Qheader}
       paste {input.pops} {output.Qheader} > {output.outfile}
       """
-# Assign ancestry following Helix paper
+# Assign ancestry
 rule assign:
     input: rules.combine.output.outfile
     output:"{dataout}/{sample}_{refname}_merged_assigned_ancestry.tsv"
@@ -306,8 +319,9 @@ rule assign:
 # Make an admixture plot
 rule plot:
     input:
-        Qdat1 = rules.combine.output.outfile,
-        Qdat2 = rules.assign.output
+        Qdat1 = rules.interpret_admixture.output,
+        Qdat2 = rules.assign.output,
+
     output:
         p1 = "{dataout}/plots/{sample}_{refname}_admixture.png",
         p2 = "{dataout}/plots/{sample}_{refname}_admixture_assigned.png"
