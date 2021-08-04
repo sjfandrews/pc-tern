@@ -14,15 +14,18 @@ MAF = config["MAF"]
 HWE = config["HWE"]
 BUILD = config["BUILD"]
 BPLINK = [".bed", ".bim", ".fam"]
+METHOD = config["METHOD"]
 
 rule all:
     input:
+        expand("{dataout}/{sample}_{refname}_projected{ext}", ext = [".5.Q", ".5.P"],
+            dataout = DATAOUT, sample = SAMPLE,refname = REFNAME),
         expand("{dataout}/plots/{sample}_{refname}_pca_tern.png",
                  dataout = DATAOUT, sample = SAMPLE,refname = REFNAME),
-        expand("{dataout}/{sample}_{refname}_merged_admixture_fixed.tsv",
-                 dataout = DATAOUT, sample = SAMPLE,refname = REFNAME),
-        expand("{dataout}/{sample}_{refname}_merged_assigned_ancestry.tsv",
-                 dataout = DATAOUT, sample = SAMPLE,refname = REFNAME),
+        expand("{dataout}/{sample}_{refname}_merged_interpret_admixture.tsv",
+                 dataout = DATAOUT, sample = SAMPLE,refname = REFNAME,method = METHOD),
+        expand("{dataout}/{sample}_{refname}_merged_assign_ancestry.tsv",
+                 dataout = DATAOUT, sample = SAMPLE,refname = REFNAME, method = METHOD),
         expand("{dataout}/plots/{sample}_{refname}_admixture.png",
                 dataout = DATAOUT, sample = SAMPLE,refname = REFNAME),
         expand("{dataout}/plots/{sample}_{refname}_admixture_assigned.png",
@@ -109,6 +112,7 @@ rule sample_hapmap:
           --extract {input.prune} \
           --make-bed --out {params.out}
         """
+
 # Thin sample dataset
 rule thinning:
     input: rules.sample_hapmap.output
@@ -230,6 +234,39 @@ rule fix_fam:
     conda: "envs/r.yaml"
     script: "scripts/fix_fam.R"
 
+# Select reference
+rule extract_reference:
+    input:
+        plink = multiext("{dataout}/{sample}_{refname}_merged", ".bim", ".bed", ".fam"),
+        fam = rules.fix_fam.output.fixed,
+        sample_fam = rules.sample_hapmap.output[2]
+    output: multiext("{dataout}/{sample}_{refname}_refonly", ".bim", ".bed", ".fam")
+    params:
+        indat= "{dataout}/{sample}_{refname}_merged",
+        out = "{dataout}/{sample}_{refname}_refonly"
+    conda: "envs/plink.yaml"
+    shell:
+        r"""
+        plink --keep-allele-order --bfile {params.indat} --fam {input.fam} \
+        --remove-fam {input.sample_fam} --make-bed --out {params.out}
+        """
+# Select sample
+rule extact_sample:
+    input:
+        plink = multiext("{dataout}/{sample}_{refname}_merged", ".bim", ".bed", ".fam"),
+        fam = rules.fix_fam.output.fixed,
+        sample_fam = rules.sample_hapmap.output[2]
+    output: multiext("{dataout}/{sample}_{refname}_sampleonly", ".bim", ".bed", ".fam")
+    params:
+        indat= "{dataout}/{sample}_{refname}_merged",
+        out = "{dataout}/{sample}_{refname}_sampleonly"
+    conda: "envs/plink.yaml"
+    shell:
+        r"""
+        plink --keep-allele-order --bfile {params.indat} --fam {input.fam} \
+        --keep-fam {input.sample_fam} --make-bed --out {params.out}
+        """
+
 # PCA analysis to identify population outliers
 rule PcaPopulationOutliers:
     input:
@@ -269,8 +306,43 @@ rule plot_pca_tern:
     conda: 'envs/ggtern.yaml'
     script:'scripts/pca_tern_plot.R'
 
-# Perform admixture
-rule admixture:
+# Perform unsupervised admixture on the reference panel
+rule unsupervised_admixture:
+    input:
+        plink = multiext("{dataout}/{sample}_{refname}_refonly", ".bim", ".bed", ".fam"),
+    output:
+        Q = "{dataout}/{sample}_{refname}_refonly.5.Q",
+        P = "{dataout}/{sample}_{refname}_refonly.5.P",
+        projection = "{dataout}/{sample}_{refname}_sampleonly.5.P.in"
+    params:
+        stem = "{dataout}/{sample}_{refname}_refonly",
+        K = 5
+    conda: 'envs/admixture.yaml'
+    shell:
+        r"""
+        admixture {params.stem}.bed {params.K} -j32;
+        mv {wildcards.sample}_{wildcards.refname}_refonly.5.Q {wildcards.dataout};
+        mv {wildcards.sample}_{wildcards.refname}_refonly.5.P {wildcards.dataout};
+        cp {output.P} {output.projection}
+        """
+# Perfrom admixture projecting samples on reference panel output
+rule projection_admixture:
+    input:
+        plink = multiext("{dataout}/{sample}_{refname}_sampleonly", ".bim", ".bed", ".fam", ".5.P.in"),
+    output: multiext("{dataout}/{sample}_{refname}_projected.5", ".Q", ".P")
+    params:
+        stem = "{dataout}/{sample}_{refname}_sampleonly",
+        K = 5
+    conda: 'envs/admixture.yaml'
+    shell:
+        r"""
+        admixture -P {params.stem}.bed {params.K} -j16;
+        mv {wildcards.sample}_{wildcards.refname}_projected.5.Q {wildcards.dataout};
+        mv {wildcards.sample}_{wildcards.refname}_projected.5.P {wildcards.dataout}
+        """
+
+# Perform supervised admixture on the samples
+rule supervised_admixture:
     input:
         plink = multiext("{dataout}/{sample}_{refname}_merged", ".bim", ".bed", ".fam", ".pop"),
     output: multiext("{dataout}/{sample}_{refname}_merged.5", ".Q", ".P")
@@ -288,40 +360,43 @@ rule admixture:
 # Interpret admixture Output
 rule interpret_admixture:
     input:
-        Qfile =rules.admixture.output[0],
+        Qproj = "{dataout}/{sample}_{refname}_projected.5.Q",
+        Qsuper = "{dataout}/{sample}_{refname}_merged.5.Q",
         fam = rules.fix_fam.output.fixed,
         pops = rules.fix_fam.output.pops,
         pcs = rules.cluster_pops.output.pcs_pops
-    output: "{dataout}/{sample}_{refname}_merged_admixture_fixed.tsv"
+    output:
+        interpret = "{dataout}/{sample}_{refname}_merged_interpret_admixture.tsv",
+        assign = "{dataout}/{sample}_{refname}_merged_assign_ancestry.tsv"
     conda: 'envs/r.yaml'
     script:'scripts/interpret_admixture.R'
 
 # Combine admixture output and PCA ancestry file
-rule combine:
-    input:
-        Qraw = rules.admixture.output[0],
-        pops = rules.cluster_pops.output.pcs_pops
-    output:
-        Qheader = "{dataout}/{sample}_{refname}_merged.5.Qheader",
-        outfile = "{dataout}/{sample}_{refname}_merged_admixture_pca"
-    shell:
-      r"""
-      echo -e "K1\tK2\tK3\tK4\tK5" | cat - {input.Qraw} > {output.Qheader}
-      paste {input.pops} {output.Qheader} > {output.outfile}
-      """
-# Assign ancestry
-rule assign:
-    input: rules.combine.output.outfile
-    output:"{dataout}/{sample}_{refname}_merged_assigned_ancestry.tsv"
-    conda: 'envs/r.yaml'
-    script:'scripts/ancestry_assign.R'
+# rule combine:
+#     input:
+#         Qraw = rules.admixture.output[0],
+#         pops = rules.cluster_pops.output.pcs_pops
+#     output:
+#         Qheader = "{dataout}/{sample}_{refname}_merged.5.Qheader)",
+#         outfile = "{dataout}/{sample}_{refname}_merged_admixture_pca)"
+#     shell:
+#       r"""
+#       echo -e "K1\tK2\tK3\tK4\tK5" | cat - {input.Qraw} > {output.Qheader}
+#       paste {input.pops} {output.Qheader} > {output.outfile}
+#       """
+
+# #Assign ancestry
+# rule assign:
+#     input: rules.combine.output.outfile
+#     output:"{dataout}/{sample}_{refname}_merged_assigned_ancestry.tsv"
+#     conda: 'envs/r.yaml'
+#     script:'scripts/ancestry_assign.R'
 
 # Make an admixture plot
 rule plot:
     input:
-        Qdat1 = rules.interpret_admixture.output,
-        Qdat2 = rules.assign.output,
-
+        Qdat1 = "{dataout}/{sample}_{refname}_merged_interpret_admixture.tsv",
+        Qdat2 = "{dataout}/{sample}_{refname}_merged_assign_ancestry.tsv"
     output:
         p1 = "{dataout}/plots/{sample}_{refname}_admixture.png",
         p2 = "{dataout}/plots/{sample}_{refname}_admixture_assigned.png"
