@@ -18,8 +18,8 @@ METHOD = config["METHOD"]
 
 rule all:
     input:
-        expand("{dataout}/{sample}_{refname}_projected{ext}", ext = [".5.Q", ".5.P"],
-            dataout = DATAOUT, sample = SAMPLE,refname = REFNAME),
+        # expand("{dataout}/{sample}_{refname}_projected{ext}", ext = [".5.Q", ".5.P"],
+        #     dataout = DATAOUT, sample = SAMPLE,refname = REFNAME),
         expand("{dataout}/plots/{sample}_{refname}_pca_tern.png",
                  dataout = DATAOUT, sample = SAMPLE,refname = REFNAME),
         expand("{dataout}/{sample}_{refname}_merged_interpret_admixture.tsv",
@@ -82,7 +82,7 @@ rule Sample_Flip:
         multiext("{dataout}/{sample}_flipped", ".bim", ".bed", ".fam")
     params:
         dataout = DATAOUT
-    conda: "envs/flippyr.yaml"
+    container: 'docker://befh/flippyr:0.4.0'
     shell: "flippyr -p {input.fasta} -o {params.dataout}/{wildcards.sample} {input.bim}"
 
 rule Sample_ChromPosRef:
@@ -311,9 +311,8 @@ rule unsupervised_admixture:
     input:
         plink = multiext("{dataout}/{sample}_{refname}_refonly", ".bim", ".bed", ".fam"),
     output:
-        Q = "{dataout}/{sample}_{refname}_refonly.5.Q",
-        P = "{dataout}/{sample}_{refname}_refonly.5.P",
-        projection = "{dataout}/{sample}_{refname}_sampleonly.5.P.in"
+        q = "{dataout}/{sample}_{refname}_refonly.5.Q",
+        p = "{dataout}/{sample}_{refname}_refonly.5.P",
     params:
         stem = "{dataout}/{sample}_{refname}_refonly",
         K = 5
@@ -323,22 +322,25 @@ rule unsupervised_admixture:
         admixture {params.stem}.bed {params.K} -j32;
         mv {wildcards.sample}_{wildcards.refname}_refonly.5.Q {wildcards.dataout};
         mv {wildcards.sample}_{wildcards.refname}_refonly.5.P {wildcards.dataout};
-        cp {output.P} {output.projection}
         """
 # Perfrom admixture projecting samples on reference panel output
 rule projection_admixture:
     input:
-        plink = multiext("{dataout}/{sample}_{refname}_sampleonly", ".bim", ".bed", ".fam", ".5.P.in"),
-    output: multiext("{dataout}/{sample}_{refname}_projected.5", ".Q", ".P")
+        plink = rules.extact_sample.output,
+        p = rules.unsupervised_admixture.output.p
+    output:
+        multiext("{dataout}/{sample}_{refname}_sampleonly.5", ".Q", ".P"),
     params:
         stem = "{dataout}/{sample}_{refname}_sampleonly",
         K = 5
     conda: 'envs/admixture.yaml'
     shell:
         r"""
+        cp {input.p} {wildcards.sample}_{wildcards.refname}_sampleonly.5.P.in; # admixture requires P.in file to be in wd
         admixture -P {params.stem}.bed {params.K} -j16;
-        mv {wildcards.sample}_{wildcards.refname}_projected.5.Q {wildcards.dataout};
-        mv {wildcards.sample}_{wildcards.refname}_projected.5.P {wildcards.dataout}
+        rm {wildcards.sample}_{wildcards.refname}_sampleonly.5.P.in;
+        mv {wildcards.sample}_{wildcards.refname}_sampleonly.5.Q {wildcards.dataout};
+        mv {wildcards.sample}_{wildcards.refname}_sampleonly.5.P {wildcards.dataout}
         """
 
 # Perform supervised admixture on the samples
@@ -360,14 +362,13 @@ rule supervised_admixture:
 # Interpret admixture Output
 rule interpret_admixture:
     input:
-        Qproj = "{dataout}/{sample}_{refname}_projected.5.Q",
+        Qproj = "{dataout}/{sample}_{refname}_sampleonly.5.Q",
         Qsuper = "{dataout}/{sample}_{refname}_merged.5.Q",
         fam = rules.fix_fam.output.fixed,
         pops = rules.fix_fam.output.pops,
         pcs = rules.cluster_pops.output.pcs_pops
     output:
-        interpret = "{dataout}/{sample}_{refname}_merged_interpret_admixture.tsv",
-        assign = "{dataout}/{sample}_{refname}_merged_assign_ancestry.tsv"
+        supervised_assign = "{dataout}/{sample}_{refname}_merged_assign_ancestry.tsv"
     conda: 'envs/r.yaml'
     script:'scripts/interpret_admixture.R'
 
@@ -395,7 +396,7 @@ rule interpret_admixture:
 # Make an admixture plot
 rule plot:
     input:
-        Qdat1 = "{dataout}/{sample}_{refname}_merged_interpret_admixture.tsv",
+        # Qdat1 = "{dataout}/{sample}_{refname}_merged_interpret_admixture.tsv",
         Qdat2 = "{dataout}/{sample}_{refname}_merged_assign_ancestry.tsv"
     output:
         p1 = "{dataout}/plots/{sample}_{refname}_admixture.png",

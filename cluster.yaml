@@ -29,3 +29,7 @@ projection_admixture:
   cores: 16
   mem: 2000
   time: '4:00'
+supervised_admixture:
+  cores: 32
+  mem: 2000
+  time: '24:00'
