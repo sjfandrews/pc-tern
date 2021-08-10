@@ -3,8 +3,7 @@
 
 HM3: "/sc/arion/projects/LOAD/shea/bin/ldsc/w_hm3_cpra.snplist"
 DATAOUT: "output"
-# SAMPLE: ["gsa1234567","biome", "adni", "dian"]
-SAMPLE: ["gsa1234567"]
+SAMPLE: ["gsa1234567", "201711_CoreExome-DIAN_flipped", "all_chrall_filtered_flipped"]
 REFNAME: ["1kG"]
 tgped: "data/reference/20130606_g1k.ped"
 GenoMiss: 0.05

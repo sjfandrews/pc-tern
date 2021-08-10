@@ -18,18 +18,12 @@ METHOD = config["METHOD"]
 
 rule all:
     input:
-        # expand("{dataout}/{sample}_{refname}_projected{ext}", ext = [".5.Q", ".5.P"],
-        #     dataout = DATAOUT, sample = SAMPLE,refname = REFNAME),
         expand("{dataout}/plots/{sample}_{refname}_pca_tern.png",
                  dataout = DATAOUT, sample = SAMPLE,refname = REFNAME),
-        expand("{dataout}/{sample}_{refname}_merged_interpret_admixture.tsv",
-                 dataout = DATAOUT, sample = SAMPLE,refname = REFNAME,method = METHOD),
-        expand("{dataout}/{sample}_{refname}_merged_assign_ancestry.tsv",
-                 dataout = DATAOUT, sample = SAMPLE,refname = REFNAME, method = METHOD),
+        # expand("{dataout}/{sample}_{refname}_merged_interpret_admixture.tsv",
+        #          dataout = DATAOUT, sample = SAMPLE,refname = REFNAME,method = METHOD),
         expand("{dataout}/plots/{sample}_{refname}_admixture.png",
                 dataout = DATAOUT, sample = SAMPLE,refname = REFNAME),
-        expand("{dataout}/plots/{sample}_{refname}_admixture_assigned.png",
-                dataout = DATAOUT, sample = SAMPLE,refname = REFNAME)
 
 # Exclude SNPs with a high missing rate and low MAF
 rule snp_qc:
@@ -306,43 +300,6 @@ rule plot_pca_tern:
     conda: 'envs/ggtern.yaml'
     script:'scripts/pca_tern_plot.R'
 
-# Perform unsupervised admixture on the reference panel
-rule unsupervised_admixture:
-    input:
-        plink = multiext("{dataout}/{sample}_{refname}_refonly", ".bim", ".bed", ".fam"),
-    output:
-        q = "{dataout}/{sample}_{refname}_refonly.5.Q",
-        p = "{dataout}/{sample}_{refname}_refonly.5.P",
-    params:
-        stem = "{dataout}/{sample}_{refname}_refonly",
-        K = 5
-    conda: 'envs/admixture.yaml'
-    shell:
-        r"""
-        admixture {params.stem}.bed {params.K} -j32;
-        mv {wildcards.sample}_{wildcards.refname}_refonly.5.Q {wildcards.dataout};
-        mv {wildcards.sample}_{wildcards.refname}_refonly.5.P {wildcards.dataout};
-        """
-# Perfrom admixture projecting samples on reference panel output
-rule projection_admixture:
-    input:
-        plink = rules.extact_sample.output,
-        p = rules.unsupervised_admixture.output.p
-    output:
-        multiext("{dataout}/{sample}_{refname}_sampleonly.5", ".Q", ".P"),
-    params:
-        stem = "{dataout}/{sample}_{refname}_sampleonly",
-        K = 5
-    conda: 'envs/admixture.yaml'
-    shell:
-        r"""
-        cp {input.p} {wildcards.sample}_{wildcards.refname}_sampleonly.5.P.in; # admixture requires P.in file to be in wd
-        admixture -P {params.stem}.bed {params.K} -j16;
-        rm {wildcards.sample}_{wildcards.refname}_sampleonly.5.P.in;
-        mv {wildcards.sample}_{wildcards.refname}_sampleonly.5.Q {wildcards.dataout};
-        mv {wildcards.sample}_{wildcards.refname}_sampleonly.5.P {wildcards.dataout}
-        """
-
 # Perform supervised admixture on the samples
 rule supervised_admixture:
     input:
@@ -362,44 +319,19 @@ rule supervised_admixture:
 # Interpret admixture Output
 rule interpret_admixture:
     input:
-        Qproj = "{dataout}/{sample}_{refname}_sampleonly.5.Q",
-        Qsuper = "{dataout}/{sample}_{refname}_merged.5.Q",
-        fam = rules.fix_fam.output.fixed,
+        Qraw = rules.supervised_admixture.output[0],
         pops = rules.fix_fam.output.pops,
+        fam = rules.fix_fam.output.fixed,
         pcs = rules.cluster_pops.output.pcs_pops
     output:
-        supervised_assign = "{dataout}/{sample}_{refname}_merged_assign_ancestry.tsv"
+        supervised_assign = "{dataout}/{sample}_{refname}_merged_interpret_admixture.tsv"
     conda: 'envs/r.yaml'
     script:'scripts/interpret_admixture.R'
 
-# Combine admixture output and PCA ancestry file
-# rule combine:
-#     input:
-#         Qraw = rules.admixture.output[0],
-#         pops = rules.cluster_pops.output.pcs_pops
-#     output:
-#         Qheader = "{dataout}/{sample}_{refname}_merged.5.Qheader)",
-#         outfile = "{dataout}/{sample}_{refname}_merged_admixture_pca)"
-#     shell:
-#       r"""
-#       echo -e "K1\tK2\tK3\tK4\tK5" | cat - {input.Qraw} > {output.Qheader}
-#       paste {input.pops} {output.Qheader} > {output.outfile}
-#       """
-
-# #Assign ancestry
-# rule assign:
-#     input: rules.combine.output.outfile
-#     output:"{dataout}/{sample}_{refname}_merged_assigned_ancestry.tsv"
-#     conda: 'envs/r.yaml'
-#     script:'scripts/ancestry_assign.R'
-
 # Make an admixture plot
-rule plot:
+rule plot_admixture:
     input:
-        # Qdat1 = "{dataout}/{sample}_{refname}_merged_interpret_admixture.tsv",
-        Qdat2 = "{dataout}/{sample}_{refname}_merged_assign_ancestry.tsv"
-    output:
-        p1 = "{dataout}/plots/{sample}_{refname}_admixture.png",
-        p2 = "{dataout}/plots/{sample}_{refname}_admixture_assigned.png"
+        Qdat = rules.interpret_admixture.output
+    output: "{dataout}/plots/{sample}_{refname}_admixture.png"
     conda: 'envs/r.yaml'
     script: 'scripts/admixtureplot.R'
