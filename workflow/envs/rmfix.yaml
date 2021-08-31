@@ -1,0 +1,5 @@
+channels:
+    - bioconda
+dependencies:
+    - boost-cpp =1.74.0
+    - rfmix=2.03.r0.9505bfa

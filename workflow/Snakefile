@@ -14,16 +14,31 @@ MAF = config["MAF"]
 HWE = config["HWE"]
 BUILD = config["BUILD"]
 BPLINK = [".bed", ".bim", ".fam"]
-METHOD = config["METHOD"]
+CHROM = config["CHROM"]
+REF = config["REF"]
+mapfile = config["mapfile"]
+allmap = config["allmap"]
+popfile = config["popfile"]
+RFMIX = [".fb.tsv", ".msp.tsv", ".rfmix.Q"]
 
 rule all:
     input:
+        expand("{dataout}/{sample}-chr19{ext}", ext=BPLINK,
+                 dataout = DATAOUT,sample = SAMPLE, chrom = CHROM),
+        expand("{dataout}/{sample}-chr19.vcf.gz",
+        dataout = DATAOUT,sample = SAMPLE, chrom = CHROM),
+        expand("{dataout}/{sample}-chr19.vcf.gz.csi",
+        dataout = DATAOUT,sample = SAMPLE, chrom = CHROM),
+        expand("{dataout}/{sample}-chr19-PHASED.vcf.gz",
+        dataout = DATAOUT,sample = SAMPLE, chrom = CHROM),
+        expand("{dataout}/{sample}-chr19-LAI{ext}", ext= RFMIX,
+                    dataout = DATAOUT,sample = SAMPLE,chrom = CHROM),
         expand("{dataout}/plots/{sample}_{refname}_pca_tern.png",
                  dataout = DATAOUT, sample = SAMPLE,refname = REFNAME),
-        # expand("{dataout}/{sample}_{refname}_merged_interpret_admixture.tsv",
-        #          dataout = DATAOUT, sample = SAMPLE,refname = REFNAME,method = METHOD),
+        expand("{dataout}/{sample}_{refname}_merged_interpret_admixture.tsv",
+                 dataout = DATAOUT, sample = SAMPLE,refname = REFNAME),
         expand("{dataout}/plots/{sample}_{refname}_admixture.png",
-                dataout = DATAOUT, sample = SAMPLE,refname = REFNAME),
+                dataout = DATAOUT, sample = SAMPLE,refname = REFNAME)
 
 # Exclude SNPs with a high missing rate and low MAF
 rule snp_qc:
@@ -168,7 +183,7 @@ rule sample_make_prunelist:
     output: "{dataout}/{sample}_pruned.snplist"
     shell: "cut -f2 {input} > {output}"
 
-# Warn: subset called for sample that does not exist in header: "NA19176"... skipping
+# Warn: subset called for sample that does not exist in header: "NA19196"... skipping
 rule Reference_prune:
     input:
         vcf = "data/reference/{refname}_hg19_allChr_maxmiss0.05.vcf.gz",
@@ -335,3 +350,87 @@ rule plot_admixture:
     output: "{dataout}/plots/{sample}_{refname}_admixture.png"
     conda: 'envs/r.yaml'
     script: 'scripts/admixtureplot.R'
+### Infer local ancestry ###
+
+# Extract target chromosome
+rule extract_chromosome:
+    input:
+        fileset = multiext("{dataout}/{sample}_flipped", ".bed", ".bim", ".fam")
+    output:
+        multiext("{dataout}/{sample}-chr19",".bed", ".bim", ".fam")
+    params:
+        indat = "{dataout}/{sample}_flipped",
+        out = "{dataout}/{sample}-chr19",
+        CHROM = CHROM
+    conda: "envs/plink.yaml"
+    shell:
+        r"""
+        plink --keep-allele-order --bfile {params.indat} \
+        --chr {params.CHROM} --make-bed --out {params.out}
+        """
+
+# Recode plink file to vcf
+rule recode_Plink2Bcf:
+    input:
+        multiext("{dataout}/{sample}-chr19",".bed", ".bim", ".fam")
+    output: "{dataout}/{sample}-chr19.vcf.gz"
+    params:
+        stem = "{dataout}/{sample}-chr19",
+        out = "{dataout}/{sample}-chr19"
+    conda: "envs/plink.yaml"
+    shell:
+        r"""
+        plink --bfile {params.stem} --recode vcf bgz \
+          --real-ref-alleles --out {params.out}
+        """
+# Creation of index files for the newly-generated genotypes
+rule index_vfc:
+    input: "{dataout}/{sample}-chr19.vcf.gz"
+    output: "{dataout}/{sample}-chr19.vcf.gz.csi"
+    conda: "envs/bcftools.yaml"
+    shell: 'bcftools index -f {input}'
+
+#Peform phasing with SHAPEIT4
+rule phasing:
+    input:"{dataout}/{sample}-chr19.vcf.gz"
+    output:"{dataout}/{sample}-chr19-PHASED.vcf.gz"
+    params:
+        mapfile = mapfile,
+        CHROM = CHROM,
+        REF = REF,
+        out = "{dataout}/{sample}-chr19-PHASED.vcf.gz"
+    conda: "envs/shapeit4.yaml"
+    shell:
+        r"""
+        shapeit4 \
+        --input {input} \
+        --map {params.mapfile} \
+        --region {params.CHROM} \
+        --thread 8 \
+        --reference {params.REF} \
+        --output {output}
+        """
+
+#Peform local ancestry
+rule rfmix:
+    input: rules.phasing.output
+    output:
+        multiext("{dataout}/{sample}-chr19-LAI", ".fb.tsv", ".msp.tsv", ".rfmix.Q")
+    params:
+        allmap = allmap,
+        CHROM = CHROM,
+        popfile = popfile,
+        REF = REF,
+        out = "{dataout}/{sample}-chr19-LAI"
+    conda: "envs/rfmix.yaml"
+    shell:
+        r"""
+        rfmix \
+                -f {input} \
+                -r {params.REF} \
+                -m {params.popfile} \
+                --chromosome={params.CHROM} \
+                -g {params.allmap}  \
+                --n-threads=16 \
+                -o {params.out}
+        """

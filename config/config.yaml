@@ -1,9 +1,10 @@
 # snakemake -j1 --notemp --use-conda -np
-# snakemake --forceall --rulegraph | dot -Tpdf > docs/ancestry.pdf
+# snakemake --forceall --rulegraph | dot -Tpdf > docs/rfmix.pdf
+# snakejob -j 10 -R --use-conda
 
 HM3: "/sc/arion/projects/LOAD/shea/bin/ldsc/w_hm3_cpra.snplist"
 DATAOUT: "output"
-SAMPLE: ["gsa1234567", "201711_CoreExome-DIAN_flipped", "all_chrall_filtered_flipped"]
+SAMPLE: ["gsa1234567", "201711_CoreExome-DIAN_flipped", "all_chrall_filtered_flipped", "regeneron_GSA_hg19", "rosmap"]
 REFNAME: ["1kG"]
 tgped: "data/reference/20130606_g1k.ped"
 GenoMiss: 0.05
@@ -14,4 +15,8 @@ SampMiss: 0.05
 MAF: 0.01
 HWE: 10e-30
 BUILD: ["hg19"]
-METHOD: ['projected', 'unsupervised']
+CHROM: 19
+allmap: "data/rfmixreference/1KG_chr1-22.gmap"
+popfile: "data/rfmixreference/1KG_superpop.txt"
+mapfile: "data/rfmixreference/chr19.b37.gmap.gz"
+REF: "data/rfmixreference/ALL.chr19.phase3_shapeit2_mvncall_integrated_v5a.20130502.genotypes.vcf.gz"

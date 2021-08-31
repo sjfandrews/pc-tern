@@ -22,3 +22,4 @@ dependencies:
     - r-patchwork=1.1.1
     - r-cowplot= 1.1.1
     - r-ggthemes = 4.2.4
+    - r-Pophelper = 2.3.1

@@ -33,3 +33,11 @@ supervised_admixture:
   cores: 32
   mem: 2000
   time: '24:00'
+phasing:
+  cores: 32
+  mem: 2000
+  time: '24:00'
+rfmix:
+  cores: 32
+  mem: 2000
+  time: '24:00'

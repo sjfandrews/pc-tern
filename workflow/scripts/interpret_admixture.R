@@ -12,7 +12,8 @@ pcs.path = snakemake@input[["pcs"]]
 ## Outfile
 supervised_assign = snakemake@output[["supervised_assign"]]
 
-library(dplyr)
+library(tidyverse)
+library(plyr)
 library(readr)
 library(tidyr)
 library(purrr)
